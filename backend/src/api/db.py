@@ -27,27 +27,50 @@ def _build_sqlalchemy_url() -> str:
     """
     Build a SQLAlchemy MySQL URL from environment variables.
 
-    MYSQL_URL, if present, is used as-is when it already looks like a SQLAlchemy URL.
-    Otherwise, we assemble from individual MYSQL_* variables.
+    Supported env formats:
+    - MYSQL_URL already in SQLAlchemy form (preferred):
+        * mysql+pymysql://user:pass@host:port/dbname
+        * mysql://user:pass@host:port/dbname
+      In this case we use it (upgrading to mysql+pymysql if needed).
+
+    - MYSQL_URL in "host:port/dbname" (or "mysql://host:port/dbname") form without credentials.
+      This is a common platform-provided value; we then inject credentials from MYSQL_USER/MYSQL_PASSWORD.
+
+    - Fallback: assemble from MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB.
 
     Returns:
-        SQLAlchemy URL string.
+        SQLAlchemy URL string usable by SQLAlchemy 2.x.
     """
     mysql_url = os.getenv("MYSQL_URL", "").strip()
-    if mysql_url:
-        # If it's already a SQLAlchemy URL, use it.
-        if mysql_url.startswith("mysql+pymysql://") or mysql_url.startswith("mysql+mysqldb://") or mysql_url.startswith(
-            "mysql://"
-        ):
-            return mysql_url
 
-    host = os.getenv("MYSQL_HOST", "localhost").strip() or "localhost"
-    port = os.getenv("MYSQL_PORT", "5000").strip() or "5000"
     user = os.getenv("MYSQL_USER", "appuser").strip() or "appuser"
     password = os.getenv("MYSQL_PASSWORD", "dbuser123")
+    host = os.getenv("MYSQL_HOST", "localhost").strip() or "localhost"
+    port = os.getenv("MYSQL_PORT", "5000").strip() or "5000"
     db = os.getenv("MYSQL_DB", "myapp").strip() or "myapp"
 
-    # Use PyMySQL (pure python) driver.
+    if mysql_url:
+        # 1) Fully-qualified SQLAlchemy URLs with creds.
+        if mysql_url.startswith("mysql+pymysql://"):
+            return mysql_url
+        if mysql_url.startswith("mysql+mysqldb://"):
+            # Normalize to PyMySQL (pure python) to avoid native driver deps.
+            return "mysql+pymysql://" + mysql_url.removeprefix("mysql+mysqldb://")
+        if mysql_url.startswith("mysql://"):
+            # If credentials are present, keep them; otherwise inject from env.
+            rest = mysql_url.removeprefix("mysql://")
+            if "@" in rest:
+                return "mysql+pymysql://" + rest
+            # e.g. mysql://localhost:5000/myapp  -> inject creds
+            return f"mysql+pymysql://{user}:{password}@{rest}"
+
+        # 2) Non-SQLAlchemy host:port/db form (no scheme). Inject creds.
+        # Examples:
+        # - localhost:5000/myapp
+        # - 127.0.0.1/myapp
+        return f"mysql+pymysql://{user}:{password}@{mysql_url.lstrip('/')}"
+
+    # 3) Assemble from individual MYSQL_* variables.
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}"
 
 
