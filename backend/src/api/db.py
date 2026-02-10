@@ -46,7 +46,9 @@ def _build_sqlalchemy_url() -> str:
     user = os.getenv("MYSQL_USER", "appuser").strip() or "appuser"
     password = os.getenv("MYSQL_PASSWORD", "dbuser123")
     host = os.getenv("MYSQL_HOST", "localhost").strip() or "localhost"
-    port = os.getenv("MYSQL_PORT", "5000").strip() or "5000"
+    # Default to the project’s database container port (see database/db_connection.txt and container metadata).
+    # Environment variables (MYSQL_PORT) still override this as expected.
+    port = os.getenv("MYSQL_PORT", "5001").strip() or "5001"
     db = os.getenv("MYSQL_DB", "myapp").strip() or "myapp"
 
     if mysql_url:
